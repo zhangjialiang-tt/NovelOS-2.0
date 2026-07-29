@@ -4,3 +4,8 @@
 .pytest_cache/
 .zcode/
 .worktrees/
+__pycache__/
+.venv/
+*.egg-info/
+dist/
+node_modules/
