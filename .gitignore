@@ -1,0 +1,6 @@
+.omp/
+.pi/
+.workbuddy/
+.pytest_cache/
+.zcode/
+.worktrees/

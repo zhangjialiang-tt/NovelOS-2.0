@@ -1,1 +1,1 @@
-# NovelOS-2.0
+# novel-master
