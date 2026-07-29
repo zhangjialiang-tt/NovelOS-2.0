@@ -6,8 +6,8 @@
 
 | Goal | 范围 | 状态 |
 |---|---|---|
-| 00 仓库基线 | README、AGENTS.md、TRACEABILITY.md、PHASE1_PLAN.md、包骨架与 smoke test | 本分支完成 |
-| 01 bootstrap 纵向链路 | `version/doctor/init/status/next/integrity-scan` 五动词加扫描；Extension `/novelos`、`/novelos-status` 与工具 `novelos_init/novelos_status/novelos_next`；安装脚本；空目录经真实 Extension 与真实 Core 初始化并呈现状态板 | 下一分支 |
+| 00 仓库基线 | README、AGENTS.md、TRACEABILITY.md、PHASE1_PLAN.md、包骨架与 smoke test | 已合入（2026-07-30） |
+| 01 bootstrap 纵向链路 | `version/doctor/init/status/next/integrity-scan` 五动词加扫描；Extension `/novelos`、`/novelos-status` 与工具 `novelos_init/novelos_status/novelos_next`；安装脚本；空目录经真实 Extension 与真实 Core 初始化并呈现状态板 | 本分支完成（待演示证据） |
 | 02 Premise 闭环 | open_task/submit/validate/present/decide 全链、premise 任务类型、DecisionRef 与 UI 中介确认 | 待启动 |
 | 03 一章切片 | chapter_plan + chapter_text 任务、claims 消费与 state 投影、替换集合雏形 | 待启动 |
 | 04 替换集合与崩溃恢复 | replacement.targets 原子切换、STALE/锁定事件、崩溃恢复与 reconcile 入口 | 待启动 |
