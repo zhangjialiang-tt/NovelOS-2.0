@@ -33,7 +33,7 @@ cd <空作品目录> && pi
 
 ```bash
 uv sync && uv run pytest -m "l0 or l1 or l3"
-node --test pi/extension/test/
+node --test "pi/extension/test/*.test.ts"
 ```
 
 ## 文档索引

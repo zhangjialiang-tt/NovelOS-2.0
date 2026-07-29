@@ -28,7 +28,7 @@ uv sync
 uv run pytest -m "l0 or l1 or l3"          # 每次提交节奏（冻结文档 10 §6）
 uv run python -m novelos <verb> --json --workspace <dir>
 python scripts/install.py
-node --test pi/extension/test/
+node --test "pi/extension/test/*.test.ts"
 ```
 
 ## 5. 代码风格
