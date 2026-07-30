@@ -17,6 +17,13 @@ description: NovelOS 网文创作工作台助手。触发时机：用户想创�
 3. 校验失败时读返回的修复提示，修正内容后重新提交，不得绕过。
 4. 合法性争议以 Core 判定为准。
 
+## 无合法动作时的边界（Goal 1 守卫）
+
+1. 任何创作文件写入前，必须先调用 `novelos_status` 和 `novelos_next`。
+2. 未获得 Core 返回的 `task_id` 与 `staging_path`，不得创建 `work/` 下任何目录或文件。
+3. `legal_actions` 为空或 `next` 无 `suggested_action` 时，只能向用户说明功能尚未开放，不得自行模拟任务、自造 task-id 或文件名。
+4. 除非用户明确要求开发 Pi Skill，否则不得创建或修改任何 `SKILL.md`。
+
 ## 调用顺序（状态与初始化）
 
 1. 始终先调用 `novelos_status`。
