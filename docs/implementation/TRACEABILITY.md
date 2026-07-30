@@ -17,3 +17,11 @@
 | 06 §6 事件 schema + 锚定不变量 | `src/novelos/events.py` | `tests/test_l0_events.py`、`tests/test_l1_cli.py::TestInitThenScan` | DONE |
 | 02 §4.2 诊断三层 | `scripts/install.py`、`src/novelos/cli.py`（doctor）、`pi/extension/index.ts` | `tests/test_l1_install.py`、`tests/test_l1_cli.py::TestDoctor`、`pi/extension/test/core-client.test.ts` | DONE |
 | 10 §2 L0/L1/L3 执行器 / §6 节奏 | `pyproject.toml`、`tests/` | `uv run pytest -m "l0 or l1 or l3"` | DONE |
+| 07 §2 task.json / §3 包结构 / §5 premise output / §6 instructions / §7 capability / §8 生命周期（open-or-resume、REVISE 逐轮意见） | `src/novelos/tasks.py` | `tests/test_l0_tasks.py`、`tests/test_l1_taskflow.py` | DONE |
+| 06 §3 写前扫描（双层）/ §3.1 内部层损坏拒绝 / 进程内原子事务 / 工作区锁 | `src/novelos/transaction.py`、`src/novelos/integrity.py` | `tests/test_l0_transaction.py`、`tests/test_l0_preflight.py`、`tests/test_l1_taskflow.py` | DONE |
+| 06 §4 Candidate 存储 / §3.2 LF 规范化 hash 基线 | `src/novelos/candidates.py` | `tests/test_l0_candidate.py` | DONE |
+| 06 §6 事件锚定 / §6.1 DecisionRef（Pending 分离、nonce 恒消费、fixture 内部消费） | `src/novelos/decisions.py` | `tests/test_l0_decision.py` | DONE |
+| 04 §3.5/§3.6 present/decide 语义（TOCTOU、一次性、fixture 分支）/ §4 新错误码（r7） | `src/novelos/decisions.py`、`src/novelos/cli.py`、`src/novelos/protocol.py` | `tests/test_l0_decision.py`、`tests/test_l1_taskflow.py` | DONE |
+| 06 §2 ArtifactRevision 登记 / §9 checkpoint（最小，无 run） | `src/novelos/checkpoints.py` | `tests/test_l0_checkpoint.py` | DONE |
+| 08 §6 任务级度量（Core 可知字段 + token null） | `src/novelos/checkpoints.py`、`src/novelos/tasks.py`、`src/novelos/candidates.py` | `tests/test_l0_checkpoint.py` | DONE |
+| 03 §4 G0 负向（Goal 2 子集） | `tests/` | `tests/test_l0_decision.py`、`tests/test_l0_transaction.py` | DONE |
