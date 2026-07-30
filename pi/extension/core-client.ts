@@ -8,7 +8,7 @@
  *   4. python -m novelos——隐式候选（strict 模式排除）
  *
  * 故障分类：ENOENT / 隐式候选 No module named novelos → 穿透下一候选；
- * 候选产生进程但输出无 JSON/不可解析 → CoreProtocolError → call 映射为
+ * 候选产生进程但输出无 JSON/不可解析/不符合信封契约 → CoreProtocolError → call 映射为
  * INTERNAL_ERROR 信封（绝不误报 CORE_LAUNCHER_NOT_FOUND）；全部候选失败 →
  * CORE_LAUNCHER_NOT_FOUND（退出码 5 语义，05 §6.1 转译入口）。
  *
@@ -61,7 +61,11 @@ class CandidateUnavailable extends Error {
 
 export type Handshake =
   | { ok: true; coreVersion: string; protocolVersion: string; upgradeHint: string | null }
-  | { ok: false; error: CoreEnvError };
+  | { ok: false; kind: "ENVIRONMENT"; error: CoreEnvError }
+  | { ok: false; kind: "PROTOCOL"; message: string; hint: string };
+
+/** Handshake 失败分支（消费方按 kind 窄化：ENVIRONMENT 环境错误 / PROTOCOL 协议损坏）。 */
+export type HandshakeFailure = Extract<Handshake, { ok: false }>;
 
 export interface CallResult {
   envelope: Envelope;
@@ -93,6 +97,30 @@ interface Candidate {
 
 function isEnoent(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "ENOENT";
+}
+
+function isEnvelopeErrorItem(e: unknown): boolean {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "code" in e &&
+    typeof e.code === "string" &&
+    "message" in e &&
+    typeof e.message === "string"
+  );
+}
+
+/** 信封形状运行时校验（04 §1.3）：合法 JSON 但非信封（{}、[]、缺字段、错类型）同为协议错误。 */
+function isEnvelope(value: unknown): value is Envelope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return (
+    "ok" in value &&
+    typeof value.ok === "boolean" &&
+    "data" in value &&
+    "errors" in value &&
+    Array.isArray(value.errors) &&
+    value.errors.every(isEnvelopeErrorItem)
+  );
 }
 
 function compareVersions(a: string, b: string): number {
@@ -211,12 +239,19 @@ export class CoreClient {
         );
         return;
       }
+      const lastLine = lines[lines.length - 1];
+      let parsed: unknown;
       try {
-        const envelope = JSON.parse(lines[lines.length - 1]) as Envelope;
-        resolve({ envelope, exitCode: code ?? 0 });
+        parsed = JSON.parse(lastLine);
       } catch (err) {
-        reject(new CoreProtocolError(`Core 输出无法解析为信封：${String(err)}`, stdout.slice(0, 400)));
+        reject(new CoreProtocolError(`Core 输出无法解析为 JSON：${String(err)}`, stdout.slice(0, 400)));
+        return;
       }
+      if (!isEnvelope(parsed)) {
+        reject(new CoreProtocolError("Core 输出不符合 JSON 信封契约（04 §1.3）", lastLine.slice(0, 400)));
+        return;
+      }
+      resolve({ envelope: parsed, exitCode: code ?? 0 });
     });
     return promise;
   }
@@ -268,19 +303,17 @@ export class CoreClient {
     try {
       result = await this.call(["version", "--json"]);
     } catch (err) {
-      if (err instanceof CoreEnvError) return { ok: false, error: err };
+      if (err instanceof CoreEnvError) return { ok: false, kind: "ENVIRONMENT", error: err };
       throw err;
     }
-    // 协议错误信封（call 已分类）：以环境错误呈现，提示 doctor/重装而非版本数值
+    // 协议错误信封（call 已分类）：PROTOCOL 分支——协议损坏绝不冒充 CORE_VERSION_MISMATCH
     const firstError = result.envelope.errors[0];
     if (!result.envelope.ok && firstError?.code === "INTERNAL_ERROR") {
       return {
         ok: false,
-        error: new CoreEnvError(
-          "CORE_VERSION_MISMATCH",
-          firstError.message,
-          firstError.hint ?? "运行 novelos doctor 或重新安装（python scripts/install.py）",
-        ),
+        kind: "PROTOCOL",
+        message: firstError.message,
+        hint: firstError.hint ?? "运行 novelos doctor 或重新安装（python scripts/install.py）",
       };
     }
     const data = (result.envelope.data ?? {}) as Record<string, unknown>;
@@ -288,6 +321,7 @@ export class CoreClient {
     if (!result.envelope.ok || protocol.split(".")[0] !== PROTOCOL_VERSION.split(".")[0]) {
       return {
         ok: false,
+        kind: "ENVIRONMENT",
         error: new CoreEnvError(
           "CORE_VERSION_MISMATCH",
           `协议版本不兼容：core protocol ${protocol || "?"} vs extension ${PROTOCOL_VERSION}`,

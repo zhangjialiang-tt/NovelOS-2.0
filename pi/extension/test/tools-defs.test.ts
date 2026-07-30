@@ -56,6 +56,15 @@ test("novelos_open_task schema carries task_type and target_artifact_ref (04 §2
   assert.ok(serialized.includes('"target_artifact_ref"'));
 });
 
+test("novelos_present / novelos_checkpoint carry optional revision / label (04 §2)", () => {
+  const present = NOVELOS_TOOL_DEFS.find((d) => d.name === "novelos_present");
+  assert.ok(present, "novelos_present 存在");
+  assert.ok(JSON.stringify(present.parameters).includes('"revision"'));
+  const checkpoint = NOVELOS_TOOL_DEFS.find((d) => d.name === "novelos_checkpoint");
+  assert.ok(checkpoint, "novelos_checkpoint 存在");
+  assert.ok(JSON.stringify(checkpoint.parameters).includes('"label"'));
+});
+
 test("buildArgs whitelist: injected model fields never reach argv", () => {
   const argv = buildArgs("novelos_decide", { task_id: "t", decision: "accept", nonce: "n" });
   assert.ok(!argv.includes("--decision"), `argv 不得含 --decision：${argv}`);
@@ -105,5 +114,33 @@ test("buildArgs: per-tool argv shapes and request-id propagation", () => {
     "--json",
     "--request-id",
     "rid-5",
+  ]);
+});
+
+test("buildArgs forwards present --revision and checkpoint --label (04 §2)", () => {
+  assert.deepEqual(buildArgs("novelos_present", { task_id: "task-001", revision: 2 }, "rid-p"), [
+    "present",
+    "task-001",
+    "--json",
+    "--request-id",
+    "rid-p",
+    "--revision",
+    "2",
+  ]);
+  assert.deepEqual(buildArgs("novelos_checkpoint", { label: "里程碑" }, "rid-c"), [
+    "checkpoint",
+    "--json",
+    "--request-id",
+    "rid-c",
+    "--label",
+    "里程碑",
+  ]);
+  // 缺省可选参数不落 argv
+  assert.deepEqual(buildArgs("novelos_present", { task_id: "task-001" }, "rid-q"), [
+    "present",
+    "task-001",
+    "--json",
+    "--request-id",
+    "rid-q",
   ]);
 });

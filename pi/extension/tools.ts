@@ -14,11 +14,11 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
-import type { CallResult, CoreClient, Handshake } from "./core-client.ts";
+import type { CallResult, CoreClient, Handshake, HandshakeFailure } from "./core-client.ts";
 import {
   envelopeErrorsText,
+  handshakeFailure,
   renderDecidePreview,
-  translateEnvError,
   type PreviewContentItem,
   type PresentPacket,
 } from "./ui.ts";
@@ -98,6 +98,7 @@ export const NOVELOS_TOOL_DEFS: NovelosToolDef[] = [
     promptSnippet: "呈现 NovelOS 候选待决定",
     parameters: Type.Object({
       task_id: Type.String({ description: "任务 id" }),
+      revision: Type.Optional(Type.Number({ description: "候选版本号；缺省当前候选（04 §2）" })),
     }),
   },
   {
@@ -115,7 +116,9 @@ export const NOVELOS_TOOL_DEFS: NovelosToolDef[] = [
     label: "NovelOS 检查点",
     description: "保存进度检查点；清理已完成任务的 staging。",
     promptSnippet: "保存 NovelOS 进度检查点",
-    parameters: Type.Object({}),
+    parameters: Type.Object({
+      label: Type.Optional(Type.String({ description: "检查点标签（04 §2）" })),
+    }),
   },
 ];
 
@@ -160,24 +163,22 @@ export function buildArgs(
     case "novelos_validate":
       return ["validate", String(params["task_id"] ?? ""), "--json", ...numberArg(params, "revision", "--revision")];
     case "novelos_present":
-      return ["present", String(params["task_id"] ?? ""), "--json", ...rid];
+      return ["present", String(params["task_id"] ?? ""), "--json", ...rid, ...numberArg(params, "revision", "--revision")];
     case "novelos_decide":
       // 白名单仅 task_id：decision/nonce/author_note/revision 绝不从模型参数落 argv（03 G0 负向）
       return ["decide", String(params["task_id"] ?? ""), "--json"];
     case "novelos_checkpoint":
-      return ["checkpoint", "--json", ...rid];
+      return ["checkpoint", "--json", ...rid, ...stringArg(params, "label", "--label")];
     default:
       throw new Error(`未知工具：${name}`);
   }
 }
 
-function failureResult(handshake: Extract<Handshake, { ok: false }>) {
+function failureResult(handshake: HandshakeFailure) {
+  const failure = handshakeFailure(handshake);
   return {
-    content: [{ type: "text", text: translateEnvError(handshake.error.code) }],
-    details: {
-      ok: false,
-      errors: [{ code: handshake.error.code, message: handshake.error.message, hint: handshake.error.hint }],
-    },
+    content: [{ type: "text", text: failure.text }],
+    details: { ok: false, errors: failure.errors },
   };
 }
 
@@ -310,7 +311,12 @@ async function executeDecide(
   const decided = (result.envelope.data ?? {}) as Record<string, unknown>;
   let text: string;
   if (decision === "ACCEPT") {
-    text = "已接受：premise@1（story/premise.md 已正式落盘）";
+    // 正式版本编号自 Core 返回值派生（04 §2 commit.artifact_revisions），不硬编码
+    const commit = decided["commit"] as { artifact_revisions?: unknown } | undefined;
+    const refs = Array.isArray(commit?.artifact_revisions)
+      ? commit.artifact_revisions.filter((r): r is string => typeof r === "string")
+      : [];
+    text = refs.length > 0 ? `已接受：${refs.join("、")}（已正式落盘）。` : "候选已接受并正式保存。";
   } else if (decision === "REVISE") {
     const note = typeof decided["author_note"] === "string" ? decided["author_note"] : (authorNote ?? "");
     const guidance =

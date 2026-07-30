@@ -13,6 +13,7 @@ import process from "node:process";
 import { test } from "node:test";
 
 import { CoreClient, CoreEnvError, PROTOCOL_VERSION } from "../core-client.ts";
+import { handshakeFailure } from "../ui.ts";
 
 const repoRoot = process.cwd();
 const venvPython =
@@ -106,7 +107,10 @@ test("handshake: protocol major mismatch → CORE_VERSION_MISMATCH", async () =>
     });
     const hs = await client.handshake("0.1.0");
     assert.equal(hs.ok, false);
-    if (!hs.ok) assert.equal(hs.error.code, "CORE_VERSION_MISMATCH");
+    if (!hs.ok) {
+      assert.equal(hs.kind, "ENVIRONMENT");
+      if (hs.kind === "ENVIRONMENT") assert.equal(hs.error.code, "CORE_VERSION_MISMATCH");
+    }
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -282,6 +286,88 @@ test("classification: everything gone → CORE_LAUNCHER_NOT_FOUND + install hint
         err.code === "CORE_LAUNCHER_NOT_FOUND" &&
         /install\.py/.test(err.hint),
     );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("classification: valid JSON but invalid envelope shape → INTERNAL_ERROR (no TypeError)", async () => {
+  const home = await tempHome();
+  try {
+    const payloads = [
+      "{}",
+      "[]",
+      '{"ok":true,"data":{}}',
+      '{"ok":"true","data":{},"errors":[]}',
+      '{"ok":false,"data":null,"errors":[{}]}',
+    ];
+    for (const payload of payloads) {
+      const stub = join(home, "shape-stub.py");
+      await writeFile(stub, `print(${JSON.stringify(payload)})\n`, "utf8");
+      const launcherPath = join(home, "launcher.json");
+      await writeFile(launcherPath, JSON.stringify({ argv: [venvPython, stub] }), "utf8");
+      const client = new CoreClient({
+        env: {},
+        envCommand: null,
+        launcherConfigPath: launcherPath,
+        strict: true,
+      });
+      const result = await client.call(["version", "--json"]);
+      assert.equal(result.envelope.ok, false, `payload ${payload} 应失败`);
+      assert.equal(result.envelope.errors[0]?.code, "INTERNAL_ERROR", `payload ${payload}`);
+      assert.match(result.envelope.errors[0]?.message ?? "", /协议错误/, `payload ${payload}`);
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("handshake: protocol corruption surfaces PROTOCOL kind, never version mismatch", async () => {
+  const home = await tempHome();
+  try {
+    const stub = join(home, "corrupt-handshake.py");
+    await writeFile(stub, "print('{}')\n", "utf8");
+    const launcherPath = join(home, "launcher.json");
+    await writeFile(launcherPath, JSON.stringify({ argv: [venvPython, stub] }), "utf8");
+    const client = new CoreClient({
+      env: {},
+      envCommand: null,
+      launcherConfigPath: launcherPath,
+      strict: true,
+    });
+    const hs = await client.handshake("0.1.0");
+    assert.equal(hs.ok, false);
+    if (!hs.ok) {
+      assert.equal(hs.kind, "PROTOCOL");
+      if (hs.kind === "PROTOCOL") {
+        const failure = handshakeFailure(hs);
+        assert.match(failure.text, /核心组件响应异常/);
+        assert.ok(!failure.text.includes("版本不兼容"), "协议损坏不得呈现为版本不兼容");
+        assert.equal(failure.errors[0]?.code, "INTERNAL_ERROR");
+      }
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("handshake: discovery failure surfaces ENVIRONMENT kind", async () => {
+  const home = await tempHome();
+  try {
+    const client = new CoreClient({
+      env: {},
+      envCommand: "definitely-not-a-real-cmd-xyz",
+      launcherConfigPath: join(home, "absent", "launcher.json"),
+      pathLookup: () => null,
+      pythonCandidates: [],
+      strict: false,
+    });
+    const hs = await client.handshake("0.1.0");
+    assert.equal(hs.ok, false);
+    if (!hs.ok) {
+      assert.equal(hs.kind, "ENVIRONMENT");
+      if (hs.kind === "ENVIRONMENT") assert.equal(hs.error.code, "CORE_LAUNCHER_NOT_FOUND");
+    }
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -8,6 +8,8 @@
  * 纯函数、无 pi 依赖 → 可单测（pi/extension/test/ui.test.ts）。
  */
 
+import type { HandshakeFailure } from "./core-client.ts";
+
 export interface StatusData {
   initialized: boolean;
   project: string | null;
@@ -139,4 +141,24 @@ export function renderDecidePreview(
     }
   }
   return lines.join("\n");
+}
+
+/** 协议损坏的用户文案（不冒充「版本不兼容」——05 §6.1 仅冻结两条环境转译，此为第三类）。 */
+export const PROTOCOL_FAILURE_TEXT = "核心组件响应异常。运行 novelos doctor 或重新安装。";
+
+/** 握手失败统一转译：ENVIRONMENT → 冻结文案（05 §6.1）；PROTOCOL → doctor/重装文案。 */
+export function handshakeFailure(hs: HandshakeFailure): {
+  text: string;
+  errors: Array<{ code: string; message: string; hint?: string }>;
+} {
+  if (hs.kind === "PROTOCOL") {
+    return {
+      text: PROTOCOL_FAILURE_TEXT,
+      errors: [{ code: "INTERNAL_ERROR", message: hs.message, hint: hs.hint }],
+    };
+  }
+  return {
+    text: translateEnvError(hs.error.code),
+    errors: [{ code: hs.error.code, message: hs.error.message, hint: hs.error.hint }],
+  };
 }

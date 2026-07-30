@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import {
   envelopeErrorsText,
+  handshakeFailure,
   renderDecidePreview,
   renderNotInitialized,
   renderStatusBoard,
@@ -13,6 +14,7 @@ import {
   type NextData,
   type StatusData,
 } from "../ui.ts";
+import { CoreEnvError } from "../core-client.ts";
 
 const status: StatusData = {
   initialized: true,
@@ -128,4 +130,18 @@ test("decide preview renders full text + human summary without internals (05 §7
   }
   // previous_artifact_revisions 空 → 隐藏
   assert.ok(!text.includes("影响既有正式版本"));
+});
+
+test("handshakeFailure: PROTOCOL vs ENVIRONMENT wording (no version-mismatch masquerade)", () => {
+  const proto = handshakeFailure({ ok: false, kind: "PROTOCOL", message: "信封损坏", hint: "doctor" });
+  assert.equal(proto.text, "核心组件响应异常。运行 novelos doctor 或重新安装。");
+  assert.equal(proto.errors[0]?.code, "INTERNAL_ERROR");
+  assert.equal(proto.errors[0]?.message, "信封损坏");
+  const env = handshakeFailure({
+    ok: false,
+    kind: "ENVIRONMENT",
+    error: new CoreEnvError("CORE_VERSION_MISMATCH", "版本旧", "更新安装"),
+  });
+  assert.equal(env.text, "版本不兼容。更新安装。");
+  assert.equal(env.errors[0]?.code, "CORE_VERSION_MISMATCH");
 });
