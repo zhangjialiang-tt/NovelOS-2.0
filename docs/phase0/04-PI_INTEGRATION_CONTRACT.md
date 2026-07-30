@@ -1,11 +1,12 @@
 # NovelOS 2.0 Pi Integration Contract
 
-> 冻结文档 04/10 · 上游输入：冻结文档 02 §4/§6/§7/§8、冻结文档 01 §6/§7 · 状态：待确认（r6）
+> 冻结文档 04/10 · 上游输入：冻结文档 02 §4/§6/§7/§8、冻结文档 01 §6/§7 · 状态：待确认（r7）
 > r2（2026-07-29）：第三轮评审——新增 `novelos_init` 与 `brief`/`target_artifact_ref` 参数、validate 领域纯语义、Candidate 存储限 Task 作用域、幂等分级与 `--request-id`、present `preview_ref`、`integrity-scan` 动词。
 > r3（2026-07-29）：第四轮评审——present 返回 preview_content 与 candidate_content_hash、decide CLI 补 --nonce、request-id 持久化账本与冲突语义、新增 CANDIDATE_TAMPERED / REQUEST_ID_CONFLICT 错误码。
 > r4（2026-07-29）：第五轮评审——替换集合形状落入机器契约：present 返回 `previous_artifact_revisions[]` 与逐项 `preview_content[]`，commit 返回 `artifact_revisions[]` + `transaction_id`；`target_artifact_ref` 语义为主目标，Core 确定性扩展为 `replacement.targets[]`。
 > r5（2026-07-29）：第六轮评审——preview_content 项增 `artifact_id` / `base_artifact_ref`（首建为 null）、"精确目标"残留措辞改主目标，对齐 06 r5 事件锚点。
 > r6（2026-07-30）：Phase 1 实现期回写（§1.1 授权）：launcher 发现链定稿为 NOVELOS_CORE 环境变量 → ~/.novelos/launcher.json（安装脚本写入 {"argv": [...]}）→ PATH `novelos` → `python -m novelos`，发现失败为 CORE_LAUNCHER_NOT_FOUND；错误码注册表补 USAGE_ERROR（退出码 4，CLI 解析层）。
+> r7（2026-07-30）：Goal 2 实现期回写：错误码注册表新增 OUTPUT_PATH_NOT_ALLOWED（1，staging 路径安全违规）与 UNEXPECTED_OUTPUT_FILE（1，allowed_outputs 之外文件）；status/next 数据增补 reason_code/user_message 与 continue_task 恢复坐标字段（添加式，§2 主字段 suggested_action/task_type/subject/reason 与参数表含 target_artifact_ref 均不变）；decide 为一次性命令不经 --request-id 重放（§1.5 既有语义澄清；fixture 分支内部消费 pending nonce）。
 
 本文档冻结 NovelOS 与 Pi 之间的机器接口：Core launcher 与版本握手、JSON 传输契约、全部工具的参数与结果、CLI 映射、`novelos_decide` 的 UI 中介规范、错误码注册表。Pi 能力断言不超出冻结文档 02 §3 已核验范围。
 
@@ -185,6 +186,8 @@ Core 侧约束（冻结文档 02 §7.4）：无 pending 状态 → `NO_PENDING_D
 | `REQUEST_ID_CONFLICT` | 2 | 同一 request_id 携带不同 command 或参数 |
 | `INTERNAL_ERROR` | 3 | 未分类内部错误 |
 | USAGE_ERROR | 4 | 参数/用法错误（CLI 解析层） |
+| OUTPUT_PATH_NOT_ALLOWED | 1 | staging 路径安全违规（符号链接/路径逃逸） |
+| UNEXPECTED_OUTPUT_FILE | 1 | staging 含 allowed_outputs 之外的文件 |
 
 新增错误码必须经本文档修订；Agent 自修复只允许针对退出码 1。
 
@@ -202,7 +205,7 @@ checkpoint  export  doctor  version  integrity-scan
 | # | 文档 | 状态 |
 |---|---|---|
 | 01–03 | 见冻结文档 01 §13 | 已冻结（02 r5、03 r4、01 r3） |
-| 04 | `04-PI_INTEGRATION_CONTRACT.md` | 本文档（r6） |
+| 04 | `04-PI_INTEGRATION_CONTRACT.md` | 本文档（r7） |
 | 05 | `05-INTERACTION_DESIGN.md` | r5，待确认 |
 | 06 | `06-WORKSPACE_AND_ARTIFACT_CONTRACT.md` | r5，待确认 |
 | 07 | `07-TASK_PACKAGE_CONTRACT.md` | r5，待确认 |

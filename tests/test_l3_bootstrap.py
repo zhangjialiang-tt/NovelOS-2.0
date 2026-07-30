@@ -66,12 +66,13 @@ def test_bootstrap_vertical_slice(tmp_path):
     assert env["data"]["completed"] == []
     assert env["data"]["issues"] == []
 
-    # 6. next 已初始化 → none（Phase 1 运行时基础）
+    # 6. next 已初始化 → premise 可开（Goal 2）
     code, env = run_cli("next", "--json", workspace_dir=novel)
     assert code == 0 and env["ok"] is True
-    assert env["data"]["suggested_action"] is None
-    assert env["data"]["reason_code"] == "NO_ACTION_IMPLEMENTED"
-    assert env["data"]["user_message"] == "作品已初始化。当前版本尚未开放后续创作动作。"
+    assert env["data"]["suggested_action"] == "open_task"
+    assert env["data"]["task_type"] == "premise"
+    assert env["data"]["reason_code"] == "PREMISE_READY"
+    assert env["data"]["user_message"] == "下一步：确定故事核心（创建 Story Brief）。"
 
     # 7. integrity-scan 紧随变更命令 → PASS（r5 锚定）
     code, env = run_cli("integrity-scan", "--json", workspace_dir=novel)

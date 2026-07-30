@@ -51,9 +51,10 @@ def read_events(events_path: Path) -> list[dict]:
     return out
 
 
-def append_event(
-    ws: object,
+def compose_event(
     *,
+    index: int,
+    prev_hash: str,
     type: str,
     transaction_id: str | None,
     internal_manifest_hash: str | None,
@@ -68,19 +69,11 @@ def append_event(
     source_mode: str | None = None,
     session_id: str | None = None,
 ) -> dict:
-    """追加一个事件并闭合 hash 链；字段顺序对齐冻结文档 06 §6。
-
-    事务末事件由调用方传入 internal_manifest_hash 锚定清单；
-    非末事件传 None。Goal 1 每条命令恰一个末事件。
-    """
-    events_path: Path = ws.events  # type: ignore[attr-defined]
-    existing = read_events(events_path)
-    index = len(existing)
-    prev = existing[-1]["event_hash"] if existing else GENESIS_PREV_HASH
+    """构造一个闭合 hash 链的事件（不写盘）；字段顺序对齐冻结文档 06 §6。"""
     event = {
         "event_id": event_id_for(index),
         "event_hash": None,
-        "prev_event_hash": prev,
+        "prev_event_hash": prev_hash,
         "type": type,
         "transaction_id": transaction_id,
         "internal_manifest_hash": internal_manifest_hash,
@@ -98,6 +91,47 @@ def append_event(
         "timestamp": utc_now_iso(),
     }
     event["event_hash"] = compute_event_hash(event)
+    return event
+
+
+def append_event(
+    ws: object,
+    *,
+    type: str,
+    transaction_id: str | None,
+    internal_manifest_hash: str | None,
+    file_changes: list[dict],
+    task_id: str | None = None,
+    candidate_revision: int | None = None,
+    artifact_id: str | None = None,
+    artifact_revision: int | None = None,
+    before_hash: str | None = None,
+    after_hash: str | None = None,
+    decision_ref: dict | None = None,
+    source_mode: str | None = None,
+    session_id: str | None = None,
+) -> dict:
+    """追加一个事件并闭合 hash 链（直接写盘路径；事务路径经 transaction.WorkspaceTransaction）。"""
+    events_path: Path = ws.events  # type: ignore[attr-defined]
+    existing = read_events(events_path)
+    prev = existing[-1]["event_hash"] if existing else GENESIS_PREV_HASH
+    event = compose_event(
+        index=len(existing),
+        prev_hash=prev,
+        type=type,
+        transaction_id=transaction_id,
+        internal_manifest_hash=internal_manifest_hash,
+        file_changes=file_changes,
+        task_id=task_id,
+        candidate_revision=candidate_revision,
+        artifact_id=artifact_id,
+        artifact_revision=artifact_revision,
+        before_hash=before_hash,
+        after_hash=after_hash,
+        decision_ref=decision_ref,
+        source_mode=source_mode,
+        session_id=session_id,
+    )
     events_path.parent.mkdir(parents=True, exist_ok=True)
     with events_path.open("a", encoding="utf-8", newline="\n") as fh:
         fh.write(canonical_json(event).decode("utf-8") + "\n")

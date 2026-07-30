@@ -24,7 +24,6 @@ from novelos.protocol import (
     WORKSPACE_CORRUPT,
     NovelosError,
     canonical_json,
-    hash_file,
     sha256_hex,
 )
 
@@ -137,6 +136,58 @@ def open(root: Path, *, require_initialized: bool) -> Workspace:
     return ws
 
 
+def replay_or_none(
+    ws: Workspace, command: str, request_id: str | None, arguments_hash: str
+) -> dict | None:
+    """请求账本重放（冻结文档 04 §1.5 / 06 §8）：同 request_id + command + arguments_hash
+    → 返回原响应（不加锁、不写状态）；同 id 携带不同 command/参数 → REQUEST_ID_CONFLICT。"""
+    if request_id is None:
+        return None
+    path = ws.requests_dir / f"{request_id}.json"
+    if not path.exists():
+        return None
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    if stored.get("command") == command and stored.get("arguments_hash") == arguments_hash:
+        return stored["response"]
+    raise NovelosError(
+        REQUEST_ID_CONFLICT,
+        "同一 request_id 携带不同 command 或参数",
+        exit_code=EXIT_ILLEGAL,
+        hint="为新的变更调用生成新的 request_id（UUID）",
+    )
+
+
+def write_request_record(
+    tx: object,
+    ws: Workspace,
+    *,
+    command: str,
+    request_id: str | None,
+    arguments_hash: str,
+    response: dict,
+) -> str | None:
+    """经事务写请求记录（requests/* 由 anchor_event 自动收录 manifest）；返回 rel 路径。"""
+    if request_id is None:
+        return None
+    rel = f".novelos/requests/{request_id}.json"
+    payload = (
+        json.dumps(
+            {
+                "request_id": request_id,
+                "command": command,
+                "arguments_hash": arguments_hash,
+                "response": response,
+                "created_at": utc_now_iso(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
+    tx.write(rel, payload.encode("utf-8"))  # type: ignore[attr-defined]
+    return rel
+
+
 def init(
     root: Path,
     project_name: str | None,
@@ -144,34 +195,24 @@ def init(
     request_id: str | None,
     session_id: str | None,
 ) -> dict:
-    """初始化 Workspace，遵守冻结文档 06 §6 事件锚定不变量：
+    """初始化 Workspace（经 guarded_transaction：根目录锁 + 双层写前检查 + 原子提交）。
 
-    生成 id → 写状态文件 → 写 request ledger → 写 internal-manifest.yaml
-    → 追加恰一个末事件（含 internal_manifest_hash）→ 返回。
-    末事件之后无任何状态写入。
+    空工作区双层 preflight 空转通过；锚定不变量（06 §6）：manifest 三分排除
+    events.jsonl/decisions.jsonl（06 §3.1），末事件 INITIALIZED 携带 manifest hash。
     """
+    from novelos.transaction import guarded_transaction  # 延迟导入：transaction → integrity → workspace 环
+
     root = Path(root)
     ws = Workspace(root)
 
     if project_name is None:
         project_name = root.resolve().name
 
-    # request ledger 幂等优先（冻结文档 04 §1.5 / 06 §8）：
-    # 同 request_id 重放必须返回原响应，即使工作区已初始化。
+    # request ledger 幂等优先（04 §1.5 / 06 §8）：同 request_id 重放返回原响应，即使已初始化。
     arguments_hash = sha256_hex(canonical_json({"project_name": project_name}))
-    request_path: Path | None = None
-    if request_id is not None:
-        request_path = ws.requests_dir / f"{request_id}.json"
-        if request_path.exists():
-            stored = json.loads(request_path.read_text(encoding="utf-8"))
-            if stored.get("command") == "init" and stored.get("arguments_hash") == arguments_hash:
-                return stored["response"]
-            raise NovelosError(
-                REQUEST_ID_CONFLICT,
-                "同一 request_id 携带不同 command 或参数",
-                exit_code=EXIT_ILLEGAL,
-                hint="为新的变更调用生成新的 request_id（UUID）",
-            )
+    replayed = replay_or_none(ws, "init", request_id, arguments_hash)
+    if replayed is not None:
+        return replayed
 
     if ws.is_initialized():
         raise NovelosError(
@@ -188,76 +229,54 @@ def init(
             hint="运行 novelos doctor 诊断",
         )
 
-    for rel in SKELETON_DIRS:
-        (root / rel).mkdir(parents=True, exist_ok=True)
-
-    write_yaml(
-        ws.managed_manifest,
-        {
-            "novelos_version": core_version(),
-            "protocol_version": PROTOCOL_VERSION,
-            "project_name": project_name,
-            "created_at": utc_now_iso(),
-        },
-    )
-    managed_hash = hash_file(ws.managed_manifest)
-
-    write_yaml(
-        ws.ledger,
-        {
-            "entries": [
-                {
-                    "path": "novelos.yaml",
-                    "hash": managed_hash,
-                    "last_event_id": "ev-000001",
-                    "last_artifact_revision": None,
-                    "blocking": True,
-                }
-            ]
-        },
-    )
-
-    ws.decisions.write_bytes(b"")
-    ws.events.write_bytes(b"")
-
     response = {"initialized": True, "workspace_root": str(root.resolve())}
 
-    manifest_files: dict[str, str] = {
-        "decisions.jsonl": sha256_hex(b""),
-        "hash-ledger.yaml": hash_file(ws.ledger),
-    }
-    if request_path is not None:
-        request_path.parent.mkdir(parents=True, exist_ok=True)
-        request_path.write_text(
-            json.dumps(
-                {
-                    "request_id": request_id,
-                    "command": "init",
-                    "arguments_hash": arguments_hash,
-                    "response": response,
-                    "created_at": utc_now_iso(),
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-            newline="\n",
+    with guarded_transaction(ws) as tx:
+        for rel in SKELETON_DIRS:
+            tx.mkdir(rel)
+
+        managed_hash = tx.write_yaml(
+            "novelos.yaml",
+            {
+                "novelos_version": core_version(),
+                "protocol_version": PROTOCOL_VERSION,
+                "project_name": project_name,
+                "created_at": utc_now_iso(),
+            },
         )
-        manifest_files["requests/" + request_path.name] = hash_file(request_path)
+        tx.write_yaml(
+            ".novelos/hash-ledger.yaml",
+            {
+                "entries": [
+                    {
+                        "path": "novelos.yaml",
+                        "hash": managed_hash,
+                        "last_event_id": "ev-000001",
+                        "last_artifact_revision": None,
+                        "blocking": True,
+                    }
+                ]
+            },
+        )
+        tx.write(".novelos/decisions.jsonl", b"")
+        write_request_record(
+            tx,
+            ws,
+            command="init",
+            request_id=request_id,
+            arguments_hash=arguments_hash,
+            response=response,
+        )
 
-    write_yaml(ws.manifest, {"files": manifest_files})
+        # 末事件：INITIALIZED 为脚手架而非内容，source_mode 为 null（冻结文档 10 §3 seed 检查）
+        tx.anchor_event(
+            type="INITIALIZED",
+            transaction_id=events.new_transaction_id(),
+            file_changes=[{"path": "novelos.yaml", "before_hash": None, "after_hash": managed_hash}],
+            before_hash=None,
+            after_hash=managed_hash,
+            source_mode=None,
+            session_id=session_id,
+        )
 
-    # 末事件：INITIALIZED 为脚手架而非内容，source_mode 为 null（冻结文档 10 §3 seed 检查）
-    events.append_event(
-        ws,
-        type="INITIALIZED",
-        transaction_id=events.new_transaction_id(),
-        internal_manifest_hash=hash_file(ws.manifest),
-        file_changes=[{"path": "novelos.yaml", "before_hash": None, "after_hash": managed_hash}],
-        before_hash=None,
-        after_hash=managed_hash,
-        source_mode=None,
-        session_id=session_id,
-    )
     return response
