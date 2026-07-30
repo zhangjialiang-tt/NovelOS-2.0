@@ -196,14 +196,15 @@ class TestNextStructured:
         assert data["reason_code"] == "NOT_INITIALIZED"
         assert data["user_message"] == "还没有作品。要开始新故事吗？"
 
-    def test_initialized_no_dev_jargon(self, tmp_path):
+    def test_initialized_suggests_premise_open(self, tmp_path):
         assert run_cli("init", "--json", workspace_dir=tmp_path).returncode == 0
         result = run_cli("next", "--json", workspace_dir=tmp_path)
         assert result.returncode == 0
         data = parse_envelope(result)["data"]
-        assert data["suggested_action"] is None
-        assert data["reason_code"] == "NO_ACTION_IMPLEMENTED"
-        assert data["user_message"] == "作品已初始化。当前版本尚未开放后续创作动作。"
+        assert data["suggested_action"] == "open_task"
+        assert data["task_type"] == "premise"
+        assert data["reason_code"] == "PREMISE_READY"
+        assert data["user_message"] == "下一步：确定故事核心（创建 Story Brief）。"
         for value in (data["user_message"], data["reason"]):
             assert "Goal" not in value
             assert "Phase" not in value

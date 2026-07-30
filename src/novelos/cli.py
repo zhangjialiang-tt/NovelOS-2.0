@@ -15,13 +15,14 @@ import sys
 import traceback
 from pathlib import Path
 
-from novelos import events, integrity, workspace
+from novelos import candidates, checkpoints, decisions, events, integrity, tasks, transaction, workspace
 from novelos.protocol import (
     EXIT_ENV,
     EXIT_ILLEGAL,
     EXIT_INTERNAL,
     EXIT_OK,
     EXIT_USAGE,
+    ILLEGAL_OPERATION,
     INTERNAL_ERROR,
     MIN_EXTENSION_VERSION,
     NOT_INITIALIZED,
@@ -76,6 +77,50 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", parents=[common], help="状态板数据")
     sub.add_parser("next", parents=[common], help="下一步建议")
     sub.add_parser("integrity-scan", parents=[common], help="双层完整性扫描")
+
+    task_p = sub.add_parser("task", parents=[common], help="任务管理")
+    task_sub = task_p.add_subparsers(dest="task_command", required=True)
+    task_open = task_sub.add_parser("open", parents=[common], help="创建或恢复创作任务")
+    task_open.add_argument("--task-type", required=True, help="任务类型（当前仅 premise）")
+    task_open.add_argument("--subject", default=None, help="任务主题；缺省由 Core 取值")
+    task_open.add_argument("--brief", default=None, help="用户故事想法摘要（创建时必需）")
+    task_open.add_argument("--target-artifact-ref", default=None, help="Change Task 主目标；premise 不接受（04 §2 冻结参数）")
+    task_open.add_argument("--request-id", default=None, help="幂等键（UUID）")
+
+    candidate_p = sub.add_parser("candidate", parents=[common], help="候选管理")
+    candidate_sub = candidate_p.add_subparsers(dest="candidate_command", required=True)
+    candidate_submit = candidate_sub.add_parser("submit", parents=[common], help="提交候选")
+    candidate_submit.add_argument("task_id", help="任务 id")
+    candidate_submit.add_argument("--request-id", default=None, help="幂等键（UUID）")
+    candidate_submit.add_argument(
+        "--source-mode",
+        choices=("REAL_AGENT", "DETERMINISTIC_FIXTURE"),
+        default="REAL_AGENT",
+        help="候选来源（01 §9.1 落点标记；DETERMINISTIC_FIXTURE 仅 evaluation 运行）",
+    )
+
+    validate_p = sub.add_parser("validate", parents=[common], help="校验候选（领域纯检查，效果幂等）")
+    validate_p.add_argument("task_id", help="任务 id")
+    validate_p.add_argument("--revision", type=int, default=None, help="候选版本号；缺省当前候选")
+
+    present_p = sub.add_parser("present", parents=[common], help="呈现候选待作者决定")
+    present_p.add_argument("task_id", help="任务 id")
+    present_p.add_argument("--revision", type=int, default=None, help="候选版本号；缺省当前候选")
+    present_p.add_argument("--request-id", default=None, help="幂等键（UUID）")
+
+    # decide 为一次性命令（04 §1.5）：不经 --request-id 重放；重复 nonce 返回 DECISION_NONCE_CONSUMED。
+    decide_p = sub.add_parser("decide", parents=[common], help="记录作者决定（一次性，不经重放）")
+    decide_p.add_argument("task_id", help="任务 id")
+    decide_p.add_argument("--revision", type=int, required=True, help="候选版本号")
+    decide_p.add_argument("--nonce", default=None, help="pending 决定机会 nonce（交互路径）")
+    decide_p.add_argument("--decision", choices=("accept", "revise", "reject"), default=None, help="决定值（交互路径；fixture 分支以文件为准）")
+    decide_p.add_argument("--author-note", default=None, help="作者意见（REVISE 进下一轮工作包）")
+    decide_p.add_argument("--fixture", default=None, help="决定 fixture 文件（evaluation 分支）")
+    decide_p.add_argument("--source", choices=("INTERACTIVE_UI", "TEST_FIXTURE"), default="INTERACTIVE_UI", help="决定来源")
+
+    checkpoint_p = sub.add_parser("checkpoint", parents=[common], help="保存进度检查点")
+    checkpoint_p.add_argument("--label", default=None, help="检查点标签")
+    checkpoint_p.add_argument("--request-id", default=None, help="幂等键（UUID）")
     return parser
 
 
@@ -234,13 +279,23 @@ def _cmd_status(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, Err
         return data, EXIT_OK, None
     _health_gate(ws)
     manifest = read_yaml(ws.managed_manifest) or {}
+    stage = "initialized"
+    completed: list[str] = []
+    legal_actions: list[str] = ["premise"]
+    if _premise_accepted(ws):
+        stage = "premise_accepted"
+        completed = ["故事核心方向"]
+        legal_actions = []
+    elif _active_premise_task(ws) is not None:
+        stage = "premise_in_progress"
+        legal_actions = []
     data = {
         "initialized": True,
         "project": manifest.get("project_name"),
-        "stage": "initialized",
-        "completed": [],
+        "stage": stage,
+        "completed": completed,
         "issues": [],
-        "legal_actions": [],
+        "legal_actions": legal_actions,
     }
     return data, EXIT_OK, None
 
@@ -261,13 +316,37 @@ def _cmd_next(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, Error
         }
         return data, EXIT_OK, None
     _health_gate(ws)
+    task = _active_premise_task(ws)
+    if task is not None:
+        data = {
+            "suggested_action": "continue_task",
+            "task_type": "premise",
+            "subject": task.get("subject"),
+            "task_id": task.get("task_id"),
+            "package_path": f".novelos/tasks/{task.get('task_id')}",
+            "staging_path": f"work/{task.get('task_id')}",
+            "reason": f"premise 任务状态 {task.get('status')}，继续创作并提交候选",
+            "reason_code": "TASK_IN_PROGRESS",
+            "user_message": "故事核心任务进行中，请按任务工作包继续创作并提交候选。",
+        }
+        return data, EXIT_OK, None
+    if _premise_accepted(ws):
+        data = {
+            "suggested_action": None,
+            "task_type": None,
+            "subject": None,
+            "reason": "故事核心已确定；当前版本尚未开放故事规划。",
+            "reason_code": "NO_ACTION_IMPLEMENTED",
+            "user_message": "故事核心已确定。当前版本尚未开放故事规划。",
+        }
+        return data, EXIT_OK, None
     data = {
-        "suggested_action": None,
-        "task_type": None,
-        "subject": None,
-        "reason": "工作区已初始化；当前版本尚未开放后续创作动作。",
-        "reason_code": "NO_ACTION_IMPLEMENTED",
-        "user_message": "作品已初始化。当前版本尚未开放后续创作动作。",
+        "suggested_action": "open_task",
+        "task_type": "premise",
+        "subject": "故事核心方向",
+        "reason": "工作区已初始化，尚未确定故事核心",
+        "reason_code": "PREMISE_READY",
+        "user_message": "下一步：确定故事核心（创建 Story Brief）。",
     }
     return data, EXIT_OK, None
 
@@ -300,6 +379,173 @@ def _cmd_integrity_scan(args: argparse.Namespace, ws_root: Path) -> tuple[dict, 
     return data, EXIT_OK, None
 
 
+# ---------------------------------------------------------------------------
+# premise 状态探针与 Goal 2 六动词（领域实现见 tasks/candidates/decisions/checkpoints）
+# ---------------------------------------------------------------------------
+
+
+def _read_task_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _premise_accepted(ws: Workspace) -> bool:
+    meta_path = ws.artifacts_dir / "premise" / "meta.yaml"
+    if not meta_path.is_file():
+        return False
+    meta = read_yaml(meta_path) or {}
+    return bool(meta.get("accepted"))
+
+
+def _active_premise_task(ws: Workspace) -> dict | None:
+    """首个非终态 premise 任务（task_id 序）；无则 None。"""
+    if not ws.tasks_dir.is_dir():
+        return None
+    for task_dir in sorted(ws.tasks_dir.glob("task-*")):
+        task_file = task_dir / "task.json"
+        if not task_file.is_file():
+            continue
+        task = _read_task_json(task_file)
+        if task.get("task_type") == "premise" and task.get("status") in ("OPEN", "AWAITING_DECISION"):
+            return task
+    return None
+
+
+def _session_id() -> str | None:
+    return os.environ.get("NOVELOS_SESSION_ID")
+
+
+def _require_evaluation(what: str) -> None:
+    """02 §9：fixture/测试来源仅 evaluation 运行接受（缺省 interactive = 03 §4 G1）。"""
+    if os.environ.get("NOVELOS_RUN_MODE") != "evaluation":
+        raise NovelosError(
+            ILLEGAL_OPERATION,
+            f"{what} 仅 evaluation 运行可接受",
+            exit_code=EXIT_ILLEGAL,
+            hint="fixture/测试来源仅限 evaluation 运行（NOVELOS_RUN_MODE=evaluation）",
+        )
+
+
+def _cmd_task(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    ws = workspace.open(ws_root, require_initialized=True)
+    if args.task_command == "open":
+        with transaction.guarded_transaction(ws) as tx:
+            data = tasks.open_task(
+                ws,
+                tx,
+                task_type=args.task_type,
+                subject=args.subject,
+                brief=args.brief,
+                target_artifact_ref=args.target_artifact_ref,
+                request_id=args.request_id,
+                session_id=_session_id(),
+            )
+        return data, EXIT_OK, None
+    raise AssertionError(f"unreachable task_command: {args.task_command!r}")
+
+
+def _cmd_candidate(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    ws = workspace.open(ws_root, require_initialized=True)
+    if args.candidate_command == "submit":
+        if args.source_mode == "DETERMINISTIC_FIXTURE":
+            _require_evaluation("--source-mode DETERMINISTIC_FIXTURE")
+        with transaction.guarded_transaction(ws) as tx:
+            data = candidates.submit_candidate(
+                ws,
+                tx,
+                task_id=args.task_id,
+                request_id=args.request_id,
+                session_id=_session_id(),
+                source_mode=args.source_mode,
+            )
+        return data, EXIT_OK, None
+    raise AssertionError(f"unreachable candidate_command: {args.candidate_command!r}")
+
+
+def _cmd_validate(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    ws = workspace.open(ws_root, require_initialized=True)
+    with transaction.guarded_transaction(ws) as tx:
+        data = candidates.validate_task(ws, tx, task_id=args.task_id, revision=args.revision)
+    return data, EXIT_OK, None
+
+
+def _cmd_present(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    ws = workspace.open(ws_root, require_initialized=True)
+    with transaction.guarded_transaction(ws) as tx:
+        data = decisions.present(
+            ws,
+            tx,
+            task_id=args.task_id,
+            revision=args.revision,
+            request_id=args.request_id,
+            session_id=_session_id(),
+        )
+    return data, EXIT_OK, None
+
+
+def _cmd_decide(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    fixture = args.fixture
+    source = args.source
+    if fixture is not None:
+        _require_evaluation("--fixture")
+        if source != "TEST_FIXTURE":
+            raise NovelosError(
+                USAGE_ERROR,
+                "--fixture 必须与 --source TEST_FIXTURE 同现",
+                exit_code=EXIT_USAGE,
+                hint="fixture 决定走 evaluation 分支：--fixture <path> --source TEST_FIXTURE",
+            )
+        if not Path(fixture).is_file():
+            raise NovelosError(
+                USAGE_ERROR,
+                "fixture 文件不存在",
+                exit_code=EXIT_USAGE,
+                hint=f"检查路径：{fixture}",
+            )
+    elif source == "TEST_FIXTURE":
+        raise NovelosError(
+            USAGE_ERROR,
+            "--source TEST_FIXTURE 必须与 --fixture 同现",
+            exit_code=EXIT_USAGE,
+            hint="fixture 决定需显式 --fixture <path>",
+        )
+    decision = args.decision.upper() if isinstance(args.decision, str) else args.decision
+    if fixture is None and decision is None:
+        raise NovelosError(
+            USAGE_ERROR,
+            "交互决定需要 --decision（accept|revise|reject）",
+            exit_code=EXIT_USAGE,
+            hint="作者决定经 UI 中介；CLI 直调需显式 --decision",
+        )
+    ws = workspace.open(ws_root, require_initialized=True)
+    with transaction.guarded_transaction(ws) as tx:
+        data = decisions.decide(
+            ws,
+            tx,
+            task_id=args.task_id,
+            revision=args.revision,
+            nonce=args.nonce,
+            decision=decision,
+            author_note=args.author_note,
+            source=source,
+            fixture=fixture,
+            session_id=_session_id(),
+        )
+    return data, EXIT_OK, None
+
+
+def _cmd_checkpoint(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    ws = workspace.open(ws_root, require_initialized=True)
+    with transaction.guarded_transaction(ws) as tx:
+        data = checkpoints.checkpoint(
+            ws,
+            tx,
+            label=args.label,
+            request_id=args.request_id,
+            session_id=_session_id(),
+        )
+    return data, EXIT_OK, None
+
+
 _HANDLERS = {
     "version": _cmd_version,
     "doctor": _cmd_doctor,
@@ -307,6 +553,12 @@ _HANDLERS = {
     "status": _cmd_status,
     "next": _cmd_next,
     "integrity-scan": _cmd_integrity_scan,
+    "task": _cmd_task,
+    "candidate": _cmd_candidate,
+    "validate": _cmd_validate,
+    "present": _cmd_present,
+    "decide": _cmd_decide,
+    "checkpoint": _cmd_checkpoint,
 }
 
 
@@ -314,7 +566,11 @@ _HANDLERS = {
 # 人类文本渲染（未冻结便利）
 # ---------------------------------------------------------------------------
 
-_STAGE_HUMAN = {"initialized": "已初始化"}
+_STAGE_HUMAN = {
+    "initialized": "已初始化",
+    "premise_in_progress": "故事核心创作中",
+    "premise_accepted": "故事核心已确定",
+}
 
 
 def _render_human(command: str, data: dict) -> str:
@@ -381,6 +637,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         data, code, err = _HANDLERS[args.command](args, ws_root)
+    except transaction.OutOfBandError as exc:  # 受管层带外：信封 data = 扫描报告（06 §3）
+        emit(envelope(exc.report.to_data(), [exc.to_item()]))
+        return exc.exit_code
     except NovelosError as exc:
         emit(envelope(None, [exc.to_item()]))
         return exc.exit_code
