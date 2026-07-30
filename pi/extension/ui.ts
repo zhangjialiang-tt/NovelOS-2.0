@@ -30,6 +30,8 @@ export interface NextData {
 
 const STAGE_HUMAN: Record<string, string> = {
   initialized: "已初始化",
+  premise_in_progress: "故事核心创作中",
+  premise_accepted: "故事核心已确定",
 };
 
 export function humanStage(stage: string | null): string {
@@ -84,4 +86,57 @@ export function translateEnvelopeError(errors: Array<{ code: string; message: st
     default:
       return "系统异常，请重试或运行 novelos doctor。";
   }
+}
+
+/** 信封错误 → 文本（message（hint）拼接；工具结果通道，不做用户转译）。 */
+export function envelopeErrorsText(
+  errors: Array<{ code: string; message: string; hint?: string }>,
+): string {
+  return errors
+    .map((e) => `${e.message}${e.hint ? `（${e.hint}）` : ""}`)
+    .join("\n");
+}
+
+/** present 返回的预览项（04 §3.5/r5）。 */
+export interface PreviewContentItem {
+  artifact_id: string;
+  base_artifact_ref: string | null;
+  preview_kind: string;
+  content: string;
+}
+
+/** present_packet 的呈现所需子集（05 §3.1/§7：人类可读，不展示 hash/字段名/内部路径）。 */
+export interface PresentPacket {
+  changed_files: string[];
+  diff_statistics: { added: number; removed: number; files: number };
+  previous_artifact_revisions: unknown[];
+}
+
+const FILE_HUMAN: Record<string, string> = {
+  "story/premise.md": "故事核心",
+};
+
+/** decide 对话框标题：preview 全文 + 变更摘要（previous_artifact_revisions 空则隐藏）。 */
+export function renderDecidePreview(
+  previewContent: PreviewContentItem[],
+  packet: PresentPacket | null,
+): string {
+  const lines: string[] = ["候选已就绪，请审阅全文并决定：", ""];
+  for (const item of previewContent) {
+    if (typeof item.content === "string" && item.content !== "") {
+      lines.push(item.content, "");
+    }
+  }
+  if (packet !== null) {
+    if (packet.changed_files.length > 0) {
+      const names = packet.changed_files.map((f) => FILE_HUMAN[f] ?? "作品文件");
+      lines.push(`变更内容：${names.join("、")}`);
+    }
+    const s = packet.diff_statistics;
+    lines.push(`新增 ${s.added} 行 / 删除 ${s.removed} 行 / ${s.files} 个文件`);
+    if (packet.previous_artifact_revisions.length > 0) {
+      lines.push(`影响既有正式版本：${packet.previous_artifact_revisions.length} 项`);
+    }
+  }
+  return lines.join("\n");
 }
