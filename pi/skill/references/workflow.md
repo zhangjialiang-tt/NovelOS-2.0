@@ -16,4 +16,4 @@
 11. next — 回到 1
 ```
 
-> 注：Phase 1 仅实现 status / next / init；open_task 起（步骤 2–10）随后续 Goal 落地。
+> 注：status / next / init 与 premise 任务的步骤 2–10 完整循环（open_task/submit/validate/present/decide/checkpoint）已实现；story_plan 起（新任务类型）随后续 Goal 落地。

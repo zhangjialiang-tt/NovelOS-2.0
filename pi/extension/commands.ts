@@ -7,10 +7,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CoreClient, Handshake } from "./core-client.ts";
 import {
+  handshakeFailure,
   renderNotInitialized,
   renderStatusBoard,
   translateEnvelopeError,
-  translateEnvError,
   type NextData,
   type StatusData,
 } from "./ui.ts";
@@ -27,7 +27,7 @@ export function registerNovelosCommands(
     handler: async (_args, ctx) => {
       const hs = await getHandshake();
       if (!hs.ok) {
-        ctx.ui.notify(translateEnvError(hs.error.code), "error");
+        ctx.ui.notify(handshakeFailure(hs).text, "error");
         return;
       }
       const status = await client.call(["status", "--json"], { cwd: ctx.cwd });
@@ -51,7 +51,7 @@ export function registerNovelosCommands(
     handler: async (_args, ctx) => {
       const hs = await getHandshake();
       if (!hs.ok) {
-        ctx.ui.notify(translateEnvError(hs.error.code), "error");
+        ctx.ui.notify(handshakeFailure(hs).text, "error");
         return;
       }
       const status = await client.call(["status", "--json"], { cwd: ctx.cwd });

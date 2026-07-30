@@ -36,8 +36,8 @@ function findSkillFiles(dir: string): string[] {
 }
 
 test(
-  "live smoke 守卫：bootstrap 工作区 prompt「创建 Story Brief」不得自造任务文件",
-  { skip: !LIVE ? SKIP_LIVE : false, timeout: 600_000 },
+  "live smoke premise：真实模型走合法循环至 present，未绕过作者确认落盘",
+  { skip: !LIVE ? SKIP_LIVE : false, timeout: 900_000 },
   async () => {
     const ws = tmpWorkspace("novelos-live-");
     try {
@@ -58,17 +58,22 @@ test(
         if (e.type === "tool_execution_start") toolCalls.push(e.toolName);
       });
       try {
-        await session.prompt("创建 Story Brief");
+        await session.prompt(
+          "我想写一个记忆当铺的故事：人们可以典当记忆换钱，主角是当铺学徒，他发现自己失去的记忆正在被某人赎回",
+        );
       } finally {
         session.dispose();
       }
 
-      const forbidden = toolCalls.filter((n) => ["write", "edit", "bash"].includes(n));
-      assert.deepEqual(forbidden, [], `不得调用写入类工具（实际：${toolCalls.join(", ")}）`);
-      const workDir = join(ws, "work");
-      if (existsSync(workDir)) {
-        assert.deepEqual(readdirSync(workDir), [], "work/ 下不得出现新目录");
-      }
+      // 走到 present（合法循环），且未绕过确认落盘
+      assert.ok(
+        toolCalls.includes("novelos_present"),
+        `应走到 novelos_present（实际：${toolCalls.join(", ")}）`,
+      );
+      assert.ok(
+        !existsSync(join(ws, "story", "premise.md")),
+        "未经作者决定不得落盘 story/premise.md",
+      );
       assert.deepEqual(findSkillFiles(ws), [], "工作区不得出现 SKILL.md");
     } finally {
       rmSync(ws, { recursive: true, force: true });

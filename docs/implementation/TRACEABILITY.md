@@ -25,3 +25,8 @@
 | 06 §2 ArtifactRevision 登记 / §9 checkpoint（最小，无 run） | `src/novelos/checkpoints.py` | `tests/test_l0_checkpoint.py` | DONE |
 | 08 §6 任务级度量（Core 可知字段 + token null） | `src/novelos/checkpoints.py`、`src/novelos/tasks.py`、`src/novelos/candidates.py` | `tests/test_l0_checkpoint.py` | DONE |
 | 03 §4 G0 负向（Goal 2 子集） | `tests/` | `tests/test_l0_decision.py`、`tests/test_l0_transaction.py` | DONE |
+| 02 §7.3/§7.6/§9 UI 中介与确认守卫（ctx.mode==="tui"） | `pi/extension/tools.ts` | `pi/extension/test/tools-defs.test.ts` + 真实 Pi 演示 | DONE |
+| 01 §7 决定哲学 / 05 §3 guided 序列 / §5 确认节点 / §8 无 UI 模式 | `pi/extension/tools.ts`、`pi/skill/SKILL.md` | `pi/l2/test/premise.test.ts`、真实 Pi 演示 | DONE |
+| 02 §10 L2 行为契约 / 10 §2 L2 执行器（确定性合约 + live smoke 分级） | `pi/l2/` | `pi/l2/test/*.test.ts` | DONE |
+| A 守卫规则 | `pi/skill/SKILL.md` | `pi/l2/test/guard.test.ts`（合约）+ live smoke（证据） | DONE |
+| 04 §1.1 launcher 发现（r6/r7：故障分类 NOT_FOUND vs 协议错误 + DI 测试面） | `pi/extension/core-client.ts` | `pi/extension/test/core-client.test.ts` | DONE |

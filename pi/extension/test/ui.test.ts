@@ -5,12 +5,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  envelopeErrorsText,
+  handshakeFailure,
+  renderDecidePreview,
   renderNotInitialized,
   renderStatusBoard,
   translateEnvError,
   type NextData,
   type StatusData,
 } from "../ui.ts";
+import { CoreEnvError } from "../core-client.ts";
 
 const status: StatusData = {
   initialized: true,
@@ -86,4 +90,58 @@ test("no schema leakage in board (05 §7)", () => {
 test("env error translation (05 §6.1)", () => {
   assert.equal(translateEnvError("CORE_LAUNCHER_NOT_FOUND"), "核心组件未找到。运行安装脚本。");
   assert.equal(translateEnvError("CORE_VERSION_MISMATCH"), "版本不兼容。更新安装。");
+});
+
+test("premise stages map to author language (Goal 2)", () => {
+  const inProgress = renderStatusBoard({ ...status, stage: "premise_in_progress" }, null);
+  assert.match(inProgress, /当前阶段：故事核心创作中/);
+  const accepted = renderStatusBoard(
+    { ...status, stage: "premise_accepted", completed: ["故事核心方向"] },
+    null,
+  );
+  assert.match(accepted, /当前阶段：故事核心已确定/);
+  assert.match(accepted, /✓ 故事核心方向/);
+});
+
+test("envelopeErrorsText joins message with hint", () => {
+  assert.equal(
+    envelopeErrorsText([
+      { code: "X", message: "失败甲", hint: "修甲" },
+      { code: "Y", message: "失败乙" },
+    ]),
+    "失败甲（修甲）\n失败乙",
+  );
+});
+
+test("decide preview renders full text + human summary without internals (05 §7)", () => {
+  const text = renderDecidePreview(
+    [{ artifact_id: "premise", base_artifact_ref: null, preview_kind: "FULL_TEXT", content: "一句话钩子正文" }],
+    {
+      changed_files: ["story/premise.md"],
+      diff_statistics: { added: 42, removed: 0, files: 1 },
+      previous_artifact_revisions: [],
+    },
+  );
+  assert.match(text, /一句话钩子正文/);
+  assert.match(text, /变更内容：故事核心/);
+  assert.match(text, /新增 42 行 \/ 删除 0 行 \/ 1 个文件/);
+  for (const banned of ["story/premise.md", "candidate_revision", "sha256:", "preview_kind"]) {
+    assert.ok(!text.includes(banned), `preview 摘要不得含 ${banned}`);
+  }
+  // previous_artifact_revisions 空 → 隐藏
+  assert.ok(!text.includes("影响既有正式版本"));
+});
+
+test("handshakeFailure: PROTOCOL vs ENVIRONMENT wording (no version-mismatch masquerade)", () => {
+  const proto = handshakeFailure({ ok: false, kind: "PROTOCOL", message: "信封损坏", hint: "doctor" });
+  assert.equal(proto.text, "核心组件响应异常。运行 novelos doctor 或重新安装。");
+  assert.equal(proto.errors[0]?.code, "INTERNAL_ERROR");
+  assert.equal(proto.errors[0]?.message, "信封损坏");
+  const env = handshakeFailure({
+    ok: false,
+    kind: "ENVIRONMENT",
+    error: new CoreEnvError("CORE_VERSION_MISMATCH", "版本旧", "更新安装"),
+  });
+  assert.equal(env.text, "版本不兼容。更新安装。");
+  assert.equal(env.errors[0]?.code, "CORE_VERSION_MISMATCH");
 });
