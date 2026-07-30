@@ -181,10 +181,108 @@ test(
       assert.equal(status.envelope.data.initialized, true);
       const next = await client.call(["next", "--json"], { cwd: demoWs });
       assert.equal(next.envelope.ok, true);
-      assert.equal(next.envelope.data.reason_code, "NO_ACTION_IMPLEMENTED");
-      assert.equal(next.envelope.data.user_message, "作品已初始化。当前版本尚未开放后续创作动作。");
+      assert.equal(next.envelope.data.reason_code, "PREMISE_READY");
+      assert.equal(next.envelope.data.user_message, "下一步：确定故事核心（创建 Story Brief）。");
     } finally {
       await rm(home, { recursive: true, force: true });
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// D1：发现链依赖注入 + 故障分类（r7：NOT_FOUND vs 协议错误，经构造器 DI 不碰进程 env）
+// ---------------------------------------------------------------------------
+
+test("discovery DI: bogus envCommand falls through to valid launcherConfigPath", async () => {
+  const home = await tempHome();
+  try {
+    const launcherPath = join(home, "launcher.json");
+    await writeFile(launcherPath, JSON.stringify({ argv: [venvPython, "-m", "novelos"] }), "utf8");
+    const client = new CoreClient({
+      env: {},
+      envCommand: "definitely-not-a-real-cmd-xyz",
+      launcherConfigPath: launcherPath,
+      strict: true,
+    });
+    const result = await client.call(["version", "--json"]);
+    assert.equal(result.envelope.ok, true);
+    assert.deepEqual(result.argv, [venvPython, "-m", "novelos"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("classification: explicit candidate corrupt output → INTERNAL_ERROR, no fall-through", async () => {
+  const home = await tempHome();
+  try {
+    // 显式 launcher 候选输出非 JSON（argv 数组经 launcher.json，避免命令串空白切分）
+    const launcherPath = join(home, "launcher.json");
+    await writeFile(
+      launcherPath,
+      JSON.stringify({ argv: [venvPython, "-c", "print('garbage')"] }),
+      "utf8",
+    );
+    const client = new CoreClient({
+      env: {},
+      envCommand: null,
+      launcherConfigPath: launcherPath,
+      // 即使隐式候选健康，协议错误也必须停链而非穿透
+      pythonCandidates: [[venvPython, "-m", "novelos"]],
+      strict: false,
+    });
+    const result = await client.call(["version", "--json"]);
+    assert.equal(result.envelope.ok, false);
+    assert.equal(result.envelope.errors[0].code, "INTERNAL_ERROR");
+    assert.match(result.envelope.errors[0].message, /协议错误/);
+    assert.match(result.envelope.errors[0].hint ?? "", /doctor/);
+    // 命中的是损坏的显式候选（绝不误报 NOT_FOUND，也不穿透到健康隐式候选）
+    assert.deepEqual(result.argv, [venvPython, "-c", "print('garbage')"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("classification: implicit candidate missing module → falls through to next", async () => {
+  const home = await tempHome();
+  try {
+    const client = new CoreClient({
+      env: {},
+      envCommand: "definitely-not-a-real-cmd-xyz",
+      launcherConfigPath: null,
+      pathLookup: () => null,
+      pythonCandidates: [
+        [venvPython, "-c", "import sys;sys.stderr.write('No module named novelos\\n');sys.exit(1)"],
+        [venvPython, "-m", "novelos"],
+      ],
+      strict: false,
+    });
+    const result = await client.call(["version", "--json"]);
+    assert.equal(result.envelope.ok, true);
+    assert.deepEqual(result.argv, [venvPython, "-m", "novelos"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("classification: everything gone → CORE_LAUNCHER_NOT_FOUND + install hint", async () => {
+  const home = await tempHome();
+  try {
+    const client = new CoreClient({
+      env: {},
+      envCommand: "definitely-not-a-real-cmd-xyz",
+      launcherConfigPath: join(home, "absent", "launcher.json"),
+      pathLookup: () => null,
+      pythonCandidates: [],
+      strict: false,
+    });
+    await assert.rejects(
+      () => client.call(["version", "--json"]),
+      (err: unknown) =>
+        err instanceof CoreEnvError &&
+        err.code === "CORE_LAUNCHER_NOT_FOUND" &&
+        /install\.py/.test(err.hint),
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
