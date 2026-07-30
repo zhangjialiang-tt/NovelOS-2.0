@@ -144,3 +144,47 @@ test("constructor defaults do not throw", () => {
   assert.equal(typeof client.home, "string");
   assert.equal(client.home, homedir());
 });
+
+test("UTF-8 round-trip: Chinese user_message survives spawn→decode (Windows regression)", async () => {
+  const home = await tempHome();
+  const novel = await mkdtemp(join(tmpdir(), "novelos-ws-"));
+  try {
+    const client = new CoreClient({
+      env: { NOVELOS_CORE: `${venvPython} -m novelos`, PATH: process.env.PATH ?? "" },
+      home,
+    });
+    const result = await client.call(["next", "--json"], { cwd: novel });
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.envelope.ok, true);
+    assert.equal(result.envelope.data.reason_code, "NOT_INITIALIZED");
+    assert.equal(result.envelope.data.user_message, "还没有作品。要开始新故事吗？");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+    await rm(novel, { recursive: true, force: true });
+  }
+});
+
+const demoWs = process.env.NOVELOS_DEMO_WS;
+
+test(
+  "real workspace: initialized next carries intact Chinese user_message",
+  { skip: !demoWs ? "set NOVELOS_DEMO_WS to a real initialized workspace to run" : false },
+  async () => {
+    const home = await tempHome();
+    try {
+      const client = new CoreClient({
+        env: { NOVELOS_CORE: `${venvPython} -m novelos`, PATH: process.env.PATH ?? "" },
+        home,
+      });
+      const status = await client.call(["status", "--json"], { cwd: demoWs });
+      assert.equal(status.envelope.ok, true);
+      assert.equal(status.envelope.data.initialized, true);
+      const next = await client.call(["next", "--json"], { cwd: demoWs });
+      assert.equal(next.envelope.ok, true);
+      assert.equal(next.envelope.data.reason_code, "NO_ACTION_IMPLEMENTED");
+      assert.equal(next.envelope.data.user_message, "作品已初始化。当前版本尚未开放后续创作动作。");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);

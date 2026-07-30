@@ -103,7 +103,8 @@ export class CoreClient {
     return new Promise((resolve, reject) => {
       const child = spawn(argv[0], [...argv.slice(1), ...args], {
         cwd,
-        env: this.env,
+        // 强制 Python Core 以 UTF-8 输出（Windows 代码页默认 cp936），与本侧 utf8 解码闭环
+        env: { ...this.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
         windowsHide: true,
       });
       let stdout = "";

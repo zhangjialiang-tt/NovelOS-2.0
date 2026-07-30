@@ -101,7 +101,7 @@ export function registerNovelosTools(pi: ExtensionAPI, client: CoreClient, getHa
         content: [
           {
             type: "text",
-            text: envelopeText(result, `${result.envelope.data?.suggested_action}: ${result.envelope.data?.reason}`),
+            text: envelopeText(result, String(result.envelope.data?.user_message ?? result.envelope.data?.reason ?? "")),
           },
         ],
         details: {

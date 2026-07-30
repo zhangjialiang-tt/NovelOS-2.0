@@ -22,19 +22,32 @@ const status: StatusData = {
 };
 
 const next: NextData = {
-  suggested_action: "none",
+  suggested_action: null,
   task_type: null,
   subject: null,
-  reason: "工作区已初始化；创作任务能力将在后续 Goal 实现（Phase 1 运行时基础）",
+  reason: "工作区已初始化；当前版本尚未开放后续创作动作。",
+  reason_code: "NO_ACTION_IMPLEMENTED",
+  user_message: "作品已初始化。当前版本尚未开放后续创作动作。",
 };
 
 test("board renders the four elements", () => {
   const board = renderStatusBoard(status, next);
   assert.match(board, /作品：《星河彼岸》/);
-  assert.match(board, /当前阶段：已初始化（运行时基础）/);
+  assert.match(board, /当前阶段：已初始化/);
+  assert.ok(!board.includes("运行时基础"));
   assert.match(board, /已完成：（无）/);
   assert.match(board, /当前问题：无阻塞/);
-  assert.match(board, /建议动作：.*运行时基础/);
+  assert.match(board, /建议动作：作品已初始化。当前版本尚未开放后续创作动作。/);
+});
+
+test("suggested action falls back to reason without user_message", () => {
+  const board = renderStatusBoard(status, {
+    suggested_action: null,
+    task_type: null,
+    subject: null,
+    reason: "仅理由文案",
+  });
+  assert.match(board, /建议动作：仅理由文案/);
 });
 
 test("completed items get ✓ prefix", () => {
@@ -65,7 +78,7 @@ test("not-initialized line is the frozen wording (05 §2.2)", () => {
 
 test("no schema leakage in board (05 §7)", () => {
   const board = renderStatusBoard(status, next);
-  for (const banned of [".novelos", "sha256:", "legal_actions", "event_id", "source_mode"]) {
+  for (const banned of [".novelos", "sha256:", "legal_actions", "event_id", "source_mode", "Goal", "Phase", "运行时基础"]) {
     assert.ok(!board.includes(banned), `board must not contain ${banned}`);
   }
 });

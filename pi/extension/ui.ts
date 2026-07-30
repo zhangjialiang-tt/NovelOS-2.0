@@ -22,10 +22,14 @@ export interface NextData {
   task_type: string | null;
   subject: string | null;
   reason: string;
+  /** 机器可读码（NOT_INITIALIZED / NO_ACTION_IMPLEMENTED），Core 增补字段。 */
+  reason_code?: string | null;
+  /** 可原样呈现给作者的文案，Core 增补字段。 */
+  user_message?: string | null;
 }
 
 const STAGE_HUMAN: Record<string, string> = {
-  initialized: "已初始化（运行时基础）",
+  initialized: "已初始化",
 };
 
 export function humanStage(stage: string | null): string {
@@ -55,7 +59,7 @@ export function renderStatusBoard(status: StatusData, next: NextData | null): st
     for (const issue of status.issues) lines.push(`  ${issue}`);
   }
   if (next !== null) {
-    lines.push(`建议动作：${next.reason}`);
+    lines.push(`建议动作：${next.user_message ?? next.reason}`);
   }
   return lines.join("\n");
 }
