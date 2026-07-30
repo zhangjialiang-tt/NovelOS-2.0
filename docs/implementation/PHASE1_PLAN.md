@@ -8,11 +8,11 @@
 |---|---|---|
 | 00 仓库基线 | README、AGENTS.md、TRACEABILITY.md、PHASE1_PLAN.md、包骨架与 smoke test | 已合入（2026-07-30） |
 | 01 bootstrap 纵向链路 | `version/doctor/init/status/next/integrity-scan` 五动词加扫描；Extension `/novelos`、`/novelos-status` 与三工具；安装脚本 | 已合入（2026-07-30，PR #1） |
-| 02 Premise 完整闭环 | Task/Candidate/PendingDecision/DecisionRef/ArtifactRevision/Checkpoint；`task open / candidate submit / validate / present / decide / checkpoint` 六动词；premise output contract；Extension 六工具（decide UI 中介）；确定性 L2 | 2B 本分支完成（Draft PR；真实 Pi 演示十六步证据已备，待评审合入） |
-| 03 Story Plan 完整闭环 | `story_plan` 任务类型（输入 story/premise.md 当前版本，07 §4.1）、STORY_PLAN artifact、premise→plan 依赖与 STALE_INPUT 实装 | 待启动 |
-| 04 一章切片 | `chapter_plan` + `chapter_text` 任务、claims.yaml 消费与 state 投影（06 §5）、替换集合雏形 | 待启动 |
-| 05 替换集合与崩溃恢复 | `replacement.targets[]` 两阶段原子切换（02 §7.5 / 03 §5 钉死场景）、STALE/锁定事件、**事务 journal 崩溃 reconcile（含 OS 级文件锁升级 msvcrt/fcntl）**、`export` 动词 | 待启动 |
-| 06 三章 Strict-Real Pilot | L4 strict-real 三章纵向运行、G0–G3 全门、**run 生命周期（start/finish）与 run_token_summary**、request ledger 清理 | 待启动 |
+| 02 Premise 完整闭环 | Task/Candidate/PendingDecision/DecisionRef/ArtifactRevision/Checkpoint；`task open / candidate submit / validate / present / decide / checkpoint` 六动词；premise output contract；Extension 六工具（decide UI 中介）；确定性 L2 | 已合入（2026-07-30，PR #2 / #3 / #4） |
+| 03 Story Plan 完整闭环 | `story_plan` 任务类型（输入 story/premise.md 当前版本，07 §4.1）、STORY_PLAN artifact、premise→plan 依赖与 STALE_INPUT 实装 | 不再实施（2026-07-30 项目关闭，见 PROJECT_CLOSURE.md） |
+| 04 一章切片 | `chapter_plan` + `chapter_text` 任务、claims.yaml 消费与 state 投影（06 §5）、替换集合雏形 | 不再实施（2026-07-30 项目关闭，见 PROJECT_CLOSURE.md） |
+| 05 替换集合与崩溃恢复 | `replacement.targets[]` 两阶段原子切换（02 §7.5 / 03 §5 钉死场景）、STALE/锁定事件、**事务 journal 崩溃 reconcile（含 OS 级文件锁升级 msvcrt/fcntl）**、`export` 动词 | 不再实施（2026-07-30 项目关闭，见 PROJECT_CLOSURE.md） |
+| 06 三章 Strict-Real Pilot | L4 strict-real 三章纵向运行、G0–G3 全门、**run 生命周期（start/finish）与 run_token_summary**、request ledger 清理 | 不再实施（2026-07-30 项目关闭，见 PROJECT_CLOSURE.md） |
 
 ## 测试节奏（冻结文档 10 §6）
 
