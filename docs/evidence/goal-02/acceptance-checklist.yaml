@@ -1,0 +1,46 @@
+# Goal 2 完成判据验收检查表（真实 Pi TUI 演示，2026-07-30）
+# 演示目录：<user-home>/temp/novelos-demo2（脱敏；下同）
+# pi v0.82.1 · 模型 LongCat-2.0 · 安装资产经 junction 指向仓库分支 goal/02b-premise-pi
+
+manual_metadata_edit: false      # 全程不手改 .novelos/ 任何文件（所有写入经 Core 工具）
+fallback_used: false             # events.jsonl 无 FALLBACK/SEEDED source_mode（grep 计数 0）
+seeded_content: false            # story/premise.md 生于 ev-000011 COMMITTED（before_hash: null）
+unexpected_skill_file: false     # 演示目录 find SKILL.md = 0
+accepted_artifact: story/premise.md
+decide_source: INTERACTIVE_UI    # decisions.jsonl 两行皆 INTERACTIVE_UI（真实 TUI 对话框）
+
+decisions:
+  - { decision: REVISE, revision: 1, source: INTERACTIVE_UI, consumed: true, author_note: 把失败代价写得更具体 }
+  - { decision: ACCEPT, revision: 2, source: INTERACTIVE_UI, consumed: true, author_note: null }
+
+event_chain:
+  - { id: ev-000001, type: INITIALIZED, source_mode: null }
+  - { id: ev-000002, type: TASK_OPENED, source_mode: null }
+  - { id: ev-000003, type: CANDIDATE_SUBMITTED, source_mode: REAL_AGENT }
+  - { id: ev-000004, type: VALIDATED, source_mode: null }
+  - { id: ev-000005, type: DECISION_PENDING_OPENED, source_mode: null }
+  - { id: ev-000006, type: DECISION_RECORDED, source_mode: null }   # REVISE
+  - { id: ev-000007, type: CANDIDATE_SUBMITTED, source_mode: REAL_AGENT }
+  - { id: ev-000008, type: VALIDATED, source_mode: null }
+  - { id: ev-000009, type: DECISION_PENDING_OPENED, source_mode: null }
+  - { id: ev-000010, type: DECISION_RECORDED, source_mode: null }   # ACCEPT
+  - { id: ev-000011, type: COMMITTED, source_mode: REAL_AGENT }     # story/premise.md before_hash null
+  - { id: ev-000012, type: CHECKPOINTED, source_mode: null }
+
+sixteen_steps:
+  - "01 /novelos → 「作品尚未初始化。告诉我一个故事想法，或用 /novelos 引导创建。」"
+  - "02 用户输入故事想法（记忆当铺设定）"
+  - "03 Agent novelos_init 初始化（project = 记忆当铺）"
+  - "04 /novelos → status legal_actions: [premise]"
+  - "05 Agent novelos_open_task(premise) → task-001，读 instructions.md"
+  - "06 仅写 work/task-001/premise.md（八节）"
+  - "07 submit rev-1 → validate 首轮通过"
+  - "08 present → decide 打开 TUI 对话框（preview 全文 + 人类摘要「变更内容：故事核心 · 新增 41 行 / 1 个文件」+ 三选项）"
+  - "09 选 REVISE，输入作者意见 → 工具结果「已记录修改意见…请重读 instructions.md 与 rev-001.md」"
+  - "10 Agent read context/revision-notes/rev-001.md → edit premise.md 失败代价节（具体化三重代价）"
+  - "11 submit rev-2 → validate → present → 选 ACCEPT"
+  - "12 story/premise.md 落盘（含 rev-2 具体化内容）"
+  - "13 「保存进度」→ novelos_checkpoint cp-001"
+  - "14 CTRL_C×2/CTRL_D 退出（exit 0）"
+  - "15 重开 pi 同目录，/novelos → 「当前阶段：故事核心已确定」「已完成：✓ 故事核心方向」"
+  - "16 integrity-scan → exit 0（chain_ok/anchor_ok true，scanned_files 2），见 integrity-scan.json"
