@@ -48,3 +48,5 @@ def test_request_ledger_covered_by_manifest(tmp_path):
 
     manifest = read_yaml(Workspace(tmp_path).manifest)
     assert f"requests/{REQUEST_ID}.json" in manifest["files"]
+    # 06 §3.1 三分：decisions.jsonl 经事件绑定，不在 manifest
+    assert "decisions.jsonl" not in manifest["files"]
