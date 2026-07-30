@@ -11,7 +11,7 @@ from pathlib import Path
 
 from novelos import events
 from novelos.workspace import Workspace, read_yaml
-from novelos.protocol import hash_file
+from novelos.protocol import canonical_json, hash_file, sha256_hex
 
 
 @dataclass
@@ -34,7 +34,7 @@ class ScanReport:
         }
 
 
-def _scan_managed(ws: Workspace, report: ScanReport, event_by_id: dict[str, dict]) -> None:
+def scan_managed(ws: Workspace, report: ScanReport, event_by_id: dict[str, dict]) -> None:
     """受管作品层：hash-ledger 逐文件核验 + 账本/事件交叉核验。
 
     Goal 2 的写前扫描（冻结文档 06 §3）复用本函数。
@@ -73,8 +73,11 @@ def _scan_managed(ws: Workspace, report: ScanReport, event_by_id: dict[str, dict
             )
 
 
-def _scan_internal(ws: Workspace, report: ScanReport, event_by_id: dict[str, dict]) -> None:
-    """内部状态层：事件链、末事件锚定、decisions 绑定、冻结候选内容。"""
+def scan_internal(ws: Workspace, report: ScanReport, event_by_id: dict[str, dict]) -> None:
+    """内部状态层：事件链、末事件锚定、decisions 绑定、冻结候选内容。
+
+    写前检查（transaction.guarded_transaction）复用本函数：损坏拒绝不写任何事件。
+    """
     ok, detail = events.verify_chain(ws.events)
     if not ok:
         report.chain_ok = False
@@ -90,7 +93,8 @@ def _scan_internal(ws: Workspace, report: ScanReport, event_by_id: dict[str, dic
     ):
         report.anchor_ok = False
 
-    # decisions.jsonl 每行绑定一个事件（冻结文档 06 §3.1；Goal 1 文件为空）
+    # decisions.jsonl 每行绑定一个 DECISION_RECORDED 事件且 record_hash 自洽
+    # （冻结文档 06 §3.1；空文件合法；Goal 2 起有决定记录）
     if ws.decisions.is_file():
         with ws.decisions.open("r", encoding="utf-8", newline="\n") as fh:
             for i, raw in enumerate(fh):
@@ -103,10 +107,26 @@ def _scan_internal(ws: Workspace, report: ScanReport, event_by_id: dict[str, dic
                     report.chain_ok = False
                     report.chain_detail = report.chain_detail or f"decisions.jsonl line {i + 1}: invalid JSON"
                     continue
-                if record.get("event_id") not in event_by_id:
+                event = event_by_id.get(record.get("event_id"))
+                if event is None:
                     report.chain_ok = False
                     report.chain_detail = report.chain_detail or (
                         f"decisions.jsonl line {i + 1}: unbound event_id {record.get('event_id')}"
+                    )
+                    continue
+                if event.get("type") != "DECISION_RECORDED":
+                    report.chain_ok = False
+                    report.chain_detail = report.chain_detail or (
+                        f"decisions.jsonl line {i + 1}: bound event is not DECISION_RECORDED"
+                    )
+                    continue
+                expected_hash = sha256_hex(
+                    canonical_json({k: v for k, v in record.items() if k != "record_hash"})
+                )
+                if record.get("record_hash") != expected_hash:
+                    report.chain_ok = False
+                    report.chain_detail = report.chain_detail or (
+                        f"decisions.jsonl line {i + 1}: record_hash mismatch"
                     )
 
     # 冻结候选内容逐文件核验 meta.yaml.files[].hash（冻结文档 10 §4 步骤 3；Goal 1 无候选）
@@ -127,6 +147,6 @@ def scan(ws: Workspace) -> ScanReport:
     """双层完整性扫描（冻结文档 06 §3.1）；只读，不改 Workspace。"""
     report = ScanReport()
     event_by_id = {ev.get("event_id"): ev for ev in events.read_events(ws.events)}
-    _scan_managed(ws, report, event_by_id)
-    _scan_internal(ws, report, event_by_id)
+    scan_managed(ws, report, event_by_id)
+    scan_internal(ws, report, event_by_id)
     return report
