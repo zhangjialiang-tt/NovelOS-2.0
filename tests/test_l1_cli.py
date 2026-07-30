@@ -18,7 +18,7 @@ def run_cli(*args, workspace_dir=None, env_extra=None):
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)
+    return subprocess.run(cmd, capture_output=True, encoding="utf-8", env=env)
 
 
 def parse_envelope(result):
@@ -185,3 +185,35 @@ class TestIntegrityScanUninitialized:
         assert result.returncode == 2
         env = parse_envelope(result)
         assert env["errors"][0]["code"] == "NOT_INITIALIZED"
+
+
+class TestNextStructured:
+    def test_uninitialized(self, tmp_path):
+        result = run_cli("next", "--json", workspace_dir=tmp_path)
+        assert result.returncode == 0
+        data = parse_envelope(result)["data"]
+        assert data["suggested_action"] == "init"
+        assert data["reason_code"] == "NOT_INITIALIZED"
+        assert data["user_message"] == "还没有作品。要开始新故事吗？"
+
+    def test_initialized_no_dev_jargon(self, tmp_path):
+        assert run_cli("init", "--json", workspace_dir=tmp_path).returncode == 0
+        result = run_cli("next", "--json", workspace_dir=tmp_path)
+        assert result.returncode == 0
+        data = parse_envelope(result)["data"]
+        assert data["suggested_action"] is None
+        assert data["reason_code"] == "NO_ACTION_IMPLEMENTED"
+        assert data["user_message"] == "作品已初始化。当前版本尚未开放后续创作动作。"
+        for value in (data["user_message"], data["reason"]):
+            assert "Goal" not in value
+            assert "Phase" not in value
+
+
+class TestUtf8Output:
+    """Windows 回归：stdout 必须是严格 UTF-8 字节（不随系统代码页 cp936）。"""
+
+    def test_chinese_json_is_strict_utf8(self, tmp_path):
+        cmd = [sys.executable, "-m", "novelos", "next", "--json", "--workspace", str(tmp_path)]
+        proc = subprocess.run(cmd, capture_output=True)
+        env = json.loads(proc.stdout.decode("utf-8"))  # 严格解码：cp936 字节会在此失败
+        assert env["data"]["user_message"] == "还没有作品。要开始新故事吗？"

@@ -17,7 +17,7 @@ def run_cli(*args, workspace_dir=None, env_extra=None):
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, encoding="utf-8", env=env)
     lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
     assert len(lines) == 1, f"one JSON doc per call; got {result.stdout!r} / stderr {result.stderr!r}"
     env_json = json.loads(lines[0])
@@ -49,6 +49,8 @@ def test_bootstrap_vertical_slice(tmp_path):
     code, env = run_cli("next", "--json", workspace_dir=novel)
     assert code == 0 and env["ok"] is True
     assert env["data"]["suggested_action"] == "init"
+    assert env["data"]["reason_code"] == "NOT_INITIALIZED"
+    assert env["data"]["user_message"] == "还没有作品。要开始新故事吗？"
 
     # 4. init
     code, env = run_cli("init", "--json", workspace_dir=novel)
@@ -67,7 +69,9 @@ def test_bootstrap_vertical_slice(tmp_path):
     # 6. next 已初始化 → none（Phase 1 运行时基础）
     code, env = run_cli("next", "--json", workspace_dir=novel)
     assert code == 0 and env["ok"] is True
-    assert env["data"]["suggested_action"] == "none"
+    assert env["data"]["suggested_action"] is None
+    assert env["data"]["reason_code"] == "NO_ACTION_IMPLEMENTED"
+    assert env["data"]["user_message"] == "作品已初始化。当前版本尚未开放后续创作动作。"
 
     # 7. integrity-scan 紧随变更命令 → PASS（r5 锚定）
     code, env = run_cli("integrity-scan", "--json", workspace_dir=novel)

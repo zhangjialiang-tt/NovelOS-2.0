@@ -246,6 +246,9 @@ def _cmd_status(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, Err
 
 
 def _cmd_next(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, ErrorItem | None]:
+    """数据字段 suggested_action/task_type/subject/reason 见冻结文档 04 §2；
+    增补 reason_code / user_message：机器可读码 + 可原样呈现的用户文案，
+    Extension 与 Agent 不必解析自由文本。"""
     ws = workspace.open(ws_root, require_initialized=False)
     if not ws.is_initialized():
         data = {
@@ -253,14 +256,18 @@ def _cmd_next(args: argparse.Namespace, ws_root: Path) -> tuple[dict, int, Error
             "task_type": None,
             "subject": None,
             "reason": "工作区未初始化",
+            "reason_code": "NOT_INITIALIZED",
+            "user_message": "还没有作品。要开始新故事吗？",
         }
         return data, EXIT_OK, None
     _health_gate(ws)
     data = {
-        "suggested_action": "none",
+        "suggested_action": None,
         "task_type": None,
         "subject": None,
-        "reason": "工作区已初始化；创作任务能力将在后续 Goal 实现（Phase 1 运行时基础）",
+        "reason": "工作区已初始化；当前版本尚未开放后续创作动作。",
+        "reason_code": "NO_ACTION_IMPLEMENTED",
+        "user_message": "作品已初始化。当前版本尚未开放后续创作动作。",
     }
     return data, EXIT_OK, None
 
@@ -307,7 +314,7 @@ _HANDLERS = {
 # 人类文本渲染（未冻结便利）
 # ---------------------------------------------------------------------------
 
-_STAGE_HUMAN = {"initialized": "已初始化（运行时基础）"}
+_STAGE_HUMAN = {"initialized": "已初始化"}
 
 
 def _render_human(command: str, data: dict) -> str:
@@ -338,7 +345,7 @@ def _render_human(command: str, data: dict) -> str:
             f"当前问题：{issues}"
         )
     if command == "next":
-        return f"建议动作：{data['suggested_action']} — {data['reason']}"
+        return f"建议动作：{data['user_message']}"
     if command == "integrity-scan":
         return (
             f"扫描 {data['scanned_files']} 个受管文件；"
@@ -351,6 +358,14 @@ def _render_human(command: str, data: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 控制台/管道默认编码随系统代码页（如 cp936）；强制 UTF-8 输出，
+    # 与 Extension 侧 utf8 解码闭环（不依赖宿主终端代码页）。
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):  # 流不可配置（如被替换对象）时忽略
+                pass
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = build_parser()
     try:
